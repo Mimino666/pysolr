@@ -801,6 +801,28 @@ class Solr(object):
         self.log.debug("Found '%d' Term suggestions results.", sum(len(j) for i, j in res.items()))
         return res
 
+    def _field_analysis(self, fieldname=None, fieldtype=None, showmatch=True, handler='analysis/field', **kwargs):
+        params = {
+            'analysis.showmatch': str(bool(showmatch)).lower(),
+        }
+        if fieldname:
+            params['analysis.fieldname'] = fieldname
+        if fieldtype:
+            params['analysis.fieldtype'] = fieldtype
+        params.update(kwargs)
+
+        response = self._select(params, handler=handler)
+        decoded = self.decoder.decode(response)
+        return decoded.get('analysis', {})
+
+    def field_index_analysis(self, value, fieldname=None, fieldtype=None, showmatch=True, handler='analysis/field', **kwargs):
+        kwargs['analysis.fieldvalue'] = value
+        return self._field_analysis(fieldname, fieldtype, showmatch, handler, **kwargs)
+
+    def field_query_analysis(self, value, fieldname=None, fieldtype=None, showmatch=True, handler='analysis/field', **kwargs):
+        kwargs['analysis.query'] = value
+        return self._field_analysis(fieldname, fieldtype, showmatch, handler, **kwargs)
+
     def _build_doc(self, doc, boost=None, fieldUpdates=None):
         doc_elem = ElementTree.Element('doc')
 
