@@ -203,10 +203,10 @@ def is_valid_xml_char_ordinal(i):
     """
     # conditions ordered by presumed frequency
     return (
-        0x20 <= i <= 0xD7FF
-        or i in (0x9, 0xA, 0xD)
-        or 0xE000 <= i <= 0xFFFD
-        or 0x10000 <= i <= 0x10FFFF
+        0x20 <= i <= 0xD7FF or
+        i in (0x9, 0xA, 0xD) or
+        0xE000 <= i <= 0xFFFD or
+        0x10000 <= i <= 0x10FFFF
         )
 
 
@@ -265,6 +265,9 @@ class Results(object):
     def __init__(self, decoded):
         self.raw_response = decoded
 
+        from pprint import pprint
+        pprint(decoded)
+
         # main response part of decoded Solr response
         response_part = decoded.get('response') or {}
         self.docs = response_part.get('docs', ())
@@ -277,6 +280,7 @@ class Results(object):
         self.spellcheck = decoded.get('spellcheck', {})
         self.stats = decoded.get('stats', {})
         self.qtime = decoded.get('responseHeader', {}).get('QTime', None)
+        Solr.total_time += self.qtime or 0
         self.grouped = decoded.get('grouped', {})
         self.nextCursorMark = decoded.get('nextCursorMark', None)
 
@@ -311,6 +315,10 @@ class Solr(object):
         solr = pysolr.Solr('http://localhost:8983/solr', results_cls=dict)
 
     """
+
+    request_count = 0
+    total_time = 0
+
     def __init__(self, url, decoder=None, timeout=60, results_cls=Results, search_handler='select', use_qt_param=False):
         self.decoder = decoder or json.JSONDecoder()
         self.url = url
@@ -338,12 +346,15 @@ class Solr(object):
         return self.url
 
     def _send_request(self, method, path='', body=None, headers=None, files=None):
+        Solr.request_count += 1
         url = self._create_full_url(path)
         method = method.lower()
         log_body = body
 
         if headers is None:
             headers = {}
+
+        print('[%s] %s %s' % (method.upper(), url, body))
 
         if log_body is None:
             log_body = ''
@@ -801,6 +812,28 @@ class Solr(object):
         self.log.debug("Found '%d' Term suggestions results.", sum(len(j) for i, j in res.items()))
         return res
 
+    def _field_analysis(self, fieldname=None, fieldtype=None, showmatch=True, handler='analysis/field', **kwargs):
+        params = {
+            'analysis.showmatch': str(bool(showmatch)).lower(),
+        }
+        if fieldname:
+            params['analysis.fieldname'] = fieldname
+        if fieldtype:
+            params['analysis.fieldtype'] = fieldtype
+        params.update(kwargs)
+
+        response = self._select(params, handler=handler)
+        decoded = self.decoder.decode(response)
+        return decoded.get('analysis', {})
+
+    def field_index_analysis(self, value, fieldname=None, fieldtype=None, showmatch=True, handler='analysis/field', **kwargs):
+        kwargs['analysis.fieldvalue'] = value
+        return self._field_analysis(fieldname, fieldtype, showmatch, handler, **kwargs)
+
+    def field_query_analysis(self, value, fieldname=None, fieldtype=None, showmatch=True, handler='analysis/field', **kwargs):
+        kwargs['analysis.query'] = value
+        return self._field_analysis(fieldname, fieldtype, showmatch, handler, **kwargs)
+
     def _build_doc(self, doc, boost=None, fieldUpdates=None):
         doc_elem = ElementTree.Element('doc')
 
@@ -1076,6 +1109,7 @@ class SolrCoreAdmin(object):
        7. UNLOAD
        8. LOAD (not currently implemented)
     """
+
     def __init__(self, url, *args, **kwargs):
         super(SolrCoreAdmin, self).__init__(*args, **kwargs)
         self.url = url
